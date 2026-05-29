@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  <div class="max-w-2xl mx-auto">
+    <div class="text-center mb-10">
+      <h1 class="text-3xl font-extrabold text-indigo-600">📸 이미지 호스팅 서비스</h1>
+      <p class="text-gray-500 mt-2">사진을 업로드하고 웹사이트용 링크를 받아가세요!</p>
+    </div>
+
+    <div class="bg-white p-6 rounded-3xl shadow-xl mb-10 border border-gray-100">
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">업로드 파일 이름</label>
+          <input type="text" id="studentName" placeholder="파일명을 입력하세요" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">사진 선택</label>
+          <input type="file" id="fileInput" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+        </div>
+        <button onclick="uploadFile()" id="uploadBtn" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95">업로드 시작</button>
+      </div>
+      <div id="status" class="mt-4 text-center text-sm font-medium hidden"></div>
+    </div>
+
+    <div>
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+        <span class="mr-2">🕒 최근 업로드 목록</span>
+        <button onclick="loadHistory()" class="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 transition-colors">새로고침</button>
+      </h2>
+      <div id="historyList" class="space-y-3">
+        <p class="text-gray-400 text-center py-10 text-sm">목록을 불러오는 중...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = loadHistory;
+
+    // 1. 목록 불러오기 함수
+    function loadHistory() {
+      const list = document.getElementById('historyList');
+      list.innerHTML = '<p class="text-gray-400 text-center py-10 text-sm">목록을 불러오는 중...</p>';
+      google.script.run
+        .withSuccessHandler(showHistory)
+        .withFailureHandler(err => {
+          list.innerHTML = '<p class="text-red-400 text-center py-10 text-sm">목록을 불러오지 못했습니다.</p>';
+          console.error(err);
+        })
+        .getHistory();
+    }
+
+    // 2. 목록 화면 표시 함수 (중복 제거 및 미리보기 추가)
+    function showHistory(data) {
+      const list = document.getElementById('historyList');
+      if (!data || data.length === 0) {
+        list.innerHTML = '<p class="text-gray-400 text-center py-10 text-sm">아직 업로드된 사진이 없습니다.</p>';
+        return;
+      }
+      
+      list.innerHTML = data.map(item => {
+        const cacheBusterUrl = item.url + "?t=" + new Date().getTime();
+        return `
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between transition-all hover:shadow-md mb-3 gap-3">
+            <div class="flex items-center space-x-4 w-full">
+              <div class="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center border border-gray-50">
+                <img src="${cacheBusterUrl}" 
+                     class="w-full h-full object-cover cursor-pointer" 
+                     onerror="this.src='https://via.placeholder.com/150?text=Wait...'; setTimeout(() => { this.src='${cacheBusterUrl}'; }, 3000);"
+                     onclick="window.open('${item.url}', '_blank')">
+              </div>
+              <div class="overflow-hidden">
+                <p class="font-bold text-gray-800 text-sm">${item.student}</p>
+                <p class="text-gray-400 text-xs truncate w-full md:w-48">${item.fileName}</p>
+              </div>
+            </div>
+            
+            <div class="flex space-x-2 w-full md:w-auto justify-end">
+              <button onclick="window.open('${item.url}', '_blank')" class="flex-1 md:flex-none bg-emerald-50 text-emerald-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 hover:text-white transition-colors">
+                미리보기
+              </button>
+              <button onclick="copyToClipboard('${item.url}')" class="flex-1 md:flex-none bg-indigo-50 text-indigo-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors">
+                복사
+              </button>
+              <button onclick="requestDelete('${item.fileName}')" class="bg-rose-50 text-rose-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-rose-600 hover:text-white transition-colors">
+                🗑️
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 3. 삭제 요청 함수
+    function requestDelete(fileName) {
+      const pw = prompt("파일을 삭제하시겠습니까?\n관리자 비밀번호를 입력하세요.");
+      if (!pw) return;
+
+      if (confirm("정말로 이 파일을 깃허브와 목록에서 삭제할까요?")) {
+        google.script.run.withSuccessHandler(res => {
+          if (res.success) {
+            alert("성공적으로 삭제되었습니다.");
+            loadHistory();
+          } else {
+            alert("에러: " + res.error);
+          }
+        }).deleteFile({ fileName: fileName, inputPw: pw });
+      }
+    }
+
+    // 4. 업로드 실행 함수
+    function uploadFile() {
+      const name = document.getElementById('studentName').value;
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('status');
+      const btn = document.getElementById('uploadBtn');
+
+      if (!name || fileInput.files.length === 0) {
+        alert("이름을 입력하고 파일을 선택해주세요!");
+        return;
+      }
+
+      status.innerText = "🚀 깃허브로 전송 중...";
+      status.className = "mt-4 text-center text-sm font-medium text-indigo-600 block";
+      status.classList.remove('hidden');
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      
+      reader.onload = function(e) {
+        const base64 = e.target.result.split(',')[1];
+        const obj = {
+          studentName: name,
+          fileName: file.name,
+          base64: base64
+        };
+
+        google.script.run.withSuccessHandler(res => {
+          btn.disabled = false;
+          btn.classList.remove('opacity-50');
+          if (res.success) {
+            status.innerText = "✅ 업로드 성공!";
+            status.className = "mt-4 text-center text-sm font-medium text-emerald-500 block";
+            loadHistory();
+            document.getElementById('fileInput').value = "";
+          } else {
+            status.innerText = "❌ 오류: " + res.error;
+            status.className = "mt-4 text-center text-sm font-medium text-rose-500 block";
+          }
+        }).processUpload(obj);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 5. 클립보드 복사 함수
+    function copyToClipboard(text) {
+      const tempInput = document.createElement("input");
+      document.body.appendChild(tempInput);
+      tempInput.value = text;
+      tempInput.select();
+      document.execCommand("copy");
+      document.body.removeChild(tempInput);
+      alert("링크가 복사되었습니다!");
+    }
+  </script>
+</body>
+</html>
